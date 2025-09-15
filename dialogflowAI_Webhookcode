@@ -1,0 +1,108 @@
+"use strict";
+
+import express from "express" 
+import bodyPqrser from "body-parser"
+import fetch from "node-fetch"
+
+const app = express();
+app.use(bodyParser.json());
+
+//Helperfunction to call OpenAI 
+async function callOpenAI (prompt, lang) {
+  const response = await 
+fetch ("https://api.openai.com/v1/chat/completions",{
+  method:"POST", 
+  headers:{
+    "Authorization":"Bearer ${process.env.OPENAI_API_KEY}",
+    "Content-Type":"application/json",
+  },
+  body : JSON.stringify({
+    model: "gpt-4o-mini", 
+    //Handles Arabic, French, English 
+    messages:[{role:"user", content: prompt}],
+  })
+});
+  const data = await response.json();
+  return data.choices[0].message.content.trim();
+}
+
+//Webhook endpoint
+app.post("/webhook", async(req,res)=> {
+ try {
+  const intent = req.body.queryResult.intent.displayName;
+  const userText = req.body.queryResult.queryText;
+ 
+//The user's question or text 
+  let reply = "";
+
+//Which intent was triggered 
+  const parameters = req.body.queryResult.parameters ; 
+
+//Extracted entities 
+  let responseText = ""; 
+
+//Handle each intent 
+ if (intent === "Summarize lesson"){
+  reply = await callOpenAI 
+  const lessonText = parameters.lesson ||"the lesson text ";
+  const screenshotURL = parameters.screenshot ||"the screenshot URL"; 
+    
+    if (lessonText){
+        // Normal text input 
+       const lessonText = req.body.queryResult.parameters.lesssonText ||"lessonText"
+       reply = await callOpenAI ("Summarize this text in a clear, simple way.[Rules applied : only key ideas, no extra details, adapt to the user's age, table or bullet points if useful, same language as \n${lessonText}, definition of the key words]Text:\n${lessonText}","same"
+       );
+      };
+    else if (screenshotURL){
+         // Run OCR on the uploaded screenshot coming from a parameter called "ocrText" 
+       const ocrText = req.body.queryResult.parameter.ocrText ||"ocrText"; 
+       reply = await callOpenAI ("Summarize this text in a clear, simple way.[Rules applied : only key ideas, no extra details, adapt to the user's age, table or bullet points if useful, same languae as \n${ocrText}, definition of the key words ]Text:\n${ocrText}","same"
+        ) ; 
+       }; 
+ else if (intent === "Explain Topic") {
+  const usertext = parameters.usertext ||"";
+  const lessonTopic = parameters.lessonTopic ||"this topic";
+  reply = await callOpenAI ("Explain this text/topic in a clear, concise way.[Rules applied : clear simple explanation, examples and analogies adapted to the user's age, same language as \n${userText} and definition of key words]Text:\n${userText}Topic:\n${lessonTopic}","same"
+    );
+ };
+ else if (intent === "Generate Quiz") {
+  const usertext = parameters.usertext ||""; 
+  reply = await callOpenAI ("Generate a 3 multiple-choice questions quiz based on this request. Provide correct answers at the end.Language: same as the question [Rules applied: short, multiple choice age appropried questions, same language as \n${userText} ]Topic:\n${userText}","same"
+     ) ;
+ }; 
+ else if (intent === "Correct Quiz Answer") { 
+  const studentAnswers = parameters.studentAnswers ||"";
+  const QuizwithCorrectAns = parameters.CorrectAnswers ||"";
+  reply = await callOpenAI ("Compare the student's answers with the correct answers provided in the quiz.[Rules applied: check each question, mark correct or incorrect, if incorrect provide a simple explanation along with the correction, write a little observation according to the number of mistakes the student made and encourage him in a friendly tone, same language as \n{QuizQuestions}]Student's answers:\n${StudentAnswers}Quiz with correct answers:\n${QuizAnswers}","same"
+     ) ;
+  };
+ else if (intent === "Generate mindmap") {
+  const lessonTopic = parameters.lessonTopic ||"this topic";
+  const usertext = parameters.usertext ||"";
+  reply = await callOpenAI ("Generate a mind map (structured outline with branches) about this topic[Rules applied: Use identation and bullets points to show connections, maximum 5 to 10 branches, clear mindmap, easy to read, adapted to the user's age, same language as \n${userText}]topic:\n${usertext}","same"
+     ) ;
+ }
+ else if (intent === "Translate Answer") {
+  const text = parameter.text || "your answer"; 
+  const lang = parameter.language ||"French" or "Arabic" or "English" ;
+  responseText = "Here is your text translated into **${lang}**:\n\n""${text}"\n\n(Note: real translation needs API likke Google Translate);
+ }
+ else {
+ //Default Fallback 
+  responseText = "I am sorry, I am not able to understand you question, can you rephrase it, please ? " 
+ };
+ //Send back response 
+  res.json ({
+  fulfillmentText: responseText, 
+});
+res.json({fulfillment:reply});
+ }catch (error) {
+   console.error("Webhook error:",error);
+   res.status(500).json({fulfillmentText:"Something went wrong"});
+ }
+ });
+//Start server 
+const POST = process.env.PORT || 3000; 
+app.listen(PORT, ()=> {
+  console.log("Server is running on port ${PORT}"); 
+})
